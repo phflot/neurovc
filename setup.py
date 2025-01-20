@@ -21,6 +21,6 @@ setup(
     author_email=(project_data.get("authors", [{}])[0].get("email") or ""),
     license=project_data.get("license", {}).get("text", ""),
     packages=find_packages(),
+    # Leverage requires-python from pyproject.toml instead of python_requires
     install_requires=dependencies,
-    python_requires=">=3.6",
 )
