@@ -9,13 +9,8 @@ from urllib.request import urlretrieve
 import argparse
 
 import torch
-from torch.utils.tensorboard import SummaryWriter
-import torch.nn as nn
-import torch.optim as optim
 
 from neurovc.raft.raft import RAFT
-import neurovc.raft.evaluate as evaluate
-import neurovc.raft.datasets as datasets
 from neurovc.raft.utils.flow_viz import flow_to_image
 from neurovc.raft.utils.utils import InputPadder
 
