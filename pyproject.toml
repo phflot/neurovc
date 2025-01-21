@@ -93,7 +93,9 @@ dependencies = [
     "urllib3>=2.2.0",
     "Werkzeug>=3.0.0",
     "wrapt>=1.17.0",
-    "zipp>=3.20.0"
+    "zipp>=3.20.0",
+    "yolov5-face @ git+https://github.com/phflot/yolov5-face",
+    "requests"
 ]
 
 [tool.setuptools.packages.find]
