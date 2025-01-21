@@ -4,12 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neurovc"
-version = "0.0.1-alpha.1"
+version = "0.0.1-alpha.2"
 description = "Framework for Computer Vision setups in Neuroscience"
+readme = "README.md"
 authors = [
     { name = "Philipp Flotho", email = "Philipp.Flotho@uni-saarland.de" }
 ]
-license = { text = "CC BY-NC-SA 1.0" }
+license = { text = "CC BY-NC-SA 4.0" }
 requires-python = ">=3.6"
 
 dependencies = [
