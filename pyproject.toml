@@ -94,6 +94,11 @@ dependencies = [
     "Werkzeug>=3.0.0",
     "wrapt>=1.17.0",
     "zipp>=3.20.0",
+    "tqdm>=4.0.0",
+    "pandas>=2.0.0",
+    "seaborn>=0.13.0",
+    "thop>=0.1.0",
+    "timm>=0.9.0",
 ]
 
 [tool.setuptools.packages.find]
