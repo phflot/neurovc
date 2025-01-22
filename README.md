@@ -1,6 +1,6 @@
 # NeuroVC
 
-![Fig1](img/fig1.jpg)
+![Fig1](https://phflot.github.io/img/fig1.jpg)
 
 Toolbox with utility functions for computer vision setups in neuroscience. The core module contains classes for motion magnification and camera io.
 
