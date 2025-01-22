@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neurovc"
-version = "0.0.1-alpha.2"
+version = "0.0.1-alpha.3"
 description = "Framework for Computer Vision setups in Neuroscience"
 readme = "README.md"
 authors = [
@@ -98,6 +98,7 @@ dependencies = [
     "seaborn>=0.13.0",
     "thop>=0.1.0",
     "timm>=0.9.0",
+    "yolov5-face==0.0.1a1"
 ]
 
 [tool.setuptools.packages.find]
