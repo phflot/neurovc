@@ -1,5 +1,6 @@
 # NeuroVC
 
+Toolbox with utility functions for computer vision setups in neuroscience. 
 
 ### Licensing Notice:
 This project contains code derived from RAFT, which is licensed under the BSD 3-Clause License. See `neurovc/raft/LICENSE` for details.
