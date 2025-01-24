@@ -57,7 +57,7 @@ dependencies = [
     "numpy>=1.24.0",
     "oauthlib>=3.2.0",
     "opencv-contrib-python>=4.10.0",
-    "yolov5-face @ git+https://github.com/phflot/yolov5-face",
+    "yolov5-face==0.0.1a1",
     "opt_einsum>=3.4.0",
     "packaging>=24.2.0",
     "pillow>=10.2.0",
