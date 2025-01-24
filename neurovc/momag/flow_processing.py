@@ -276,7 +276,6 @@ class MagnificationTask:
             print("No Landmarks in reference.")
 
         if results_frame.multi_face_landmarks is None:
-            print("landmarks are none.")
             return
 
         try:
