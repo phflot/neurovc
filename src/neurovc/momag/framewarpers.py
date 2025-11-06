@@ -686,17 +686,25 @@ def forward_splat(image, flow, weight=None):
 
     input_is_tensor = torch.is_tensor(image)
     input_is_numpy = isinstance(image, np.ndarray)
-    orig_numpy_dtype = image.dtype if input_is_numpy else None
     image_tensor = image if input_is_tensor else torch.as_tensor(image)
     flow_tensor = flow if torch.is_tensor(flow) else torch.as_tensor(flow)
 
     orig_dtype = image_tensor.dtype
     orig_device = image_tensor.device if input_is_tensor else None
+    orig_numpy_dtype = image.dtype if input_is_numpy else None
 
-    flow_tensor = flow_tensor.to(torch.float32)
-    target_device = flow_tensor.device
-    image_tensor = image_tensor.to(torch.float32, device=target_device)
-    flow_tensor = flow_tensor.to(device=target_device)
+    common_device = flow_tensor.device
+    if image_tensor.device != common_device:
+        if common_device.type == "cpu":
+            common_device = image_tensor.device
+        else:
+            image_tensor = image_tensor.to(device=common_device)
+    else:
+        common_device = image_tensor.device
+
+    compute_dtype = torch.promote_types(image_tensor.dtype, torch.float32)
+    image_tensor = image_tensor.to(device=common_device, dtype=compute_dtype)
+    flow_tensor = flow_tensor.to(device=common_device, dtype=compute_dtype)
 
     image_bchw, image_layout = _to_bchw(image_tensor)
     flow_b2hw, _ = _to_b2hw(flow_tensor)
@@ -774,17 +782,25 @@ def softmax_splat(image, flow, importance, temperature=1.0, clamp=50.0):
 
     input_is_tensor = torch.is_tensor(image)
     input_is_numpy = isinstance(image, np.ndarray)
-    orig_numpy_dtype = image.dtype if input_is_numpy else None
     image_tensor = image if input_is_tensor else torch.as_tensor(image)
     flow_tensor = flow if torch.is_tensor(flow) else torch.as_tensor(flow)
 
     orig_dtype = image_tensor.dtype
     orig_device = image_tensor.device if input_is_tensor else None
+    orig_numpy_dtype = image.dtype if input_is_numpy else None
 
-    flow_tensor = flow_tensor.to(torch.float32)
-    target_device = flow_tensor.device
-    image_tensor = image_tensor.to(torch.float32, device=target_device)
-    flow_tensor = flow_tensor.to(device=target_device)
+    common_device = flow_tensor.device
+    if image_tensor.device != common_device:
+        if common_device.type == "cpu":
+            common_device = image_tensor.device
+        else:
+            image_tensor = image_tensor.to(device=common_device)
+    else:
+        common_device = image_tensor.device
+
+    compute_dtype = torch.promote_types(image_tensor.dtype, torch.float32)
+    image_tensor = image_tensor.to(device=common_device, dtype=compute_dtype)
+    flow_tensor = flow_tensor.to(device=common_device, dtype=compute_dtype)
 
     image_bchw, image_layout = _to_bchw(image_tensor)
     flow_b2hw, _ = _to_b2hw(flow_tensor)
