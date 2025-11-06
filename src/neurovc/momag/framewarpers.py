@@ -1,3 +1,5 @@
+"""Utilities for spatial warping and splatting in the motion magnifier."""
+
 __author__ = "Cosmas Heiss, Philipp Flotho"
 
 try:
@@ -23,6 +25,20 @@ from typing import Tuple
 
 
 def warp_image_pc(img, flow):
+    """Warp an RGB image using SciPy point-cloud interpolation.
+
+    Parameters
+    ----------
+    img : ndarray
+        Source image with shape ``(H, W, 3)``.
+    flow : ndarray
+        Forward flow with shape ``(H, W, 2)`` in pixel coordinates.
+
+    Returns
+    -------
+    ndarray
+        Warped RGB image with the same shape and dtype as ``img``.
+    """
     m, n = img.shape[:2]
     xi, yi = np.meshgrid(np.arange(n).astype(np.float), np.arange(m).astype(np.float))
 
@@ -44,6 +60,20 @@ def warp_image_pc(img, flow):
 
 
 def warp_image_pc_single(img, flow):
+    """Warp a single-channel image using point-cloud interpolation.
+
+    Parameters
+    ----------
+    img : ndarray
+        Source image with shape ``(H, W)``.
+    flow : ndarray
+        Forward flow with shape ``(H, W, 2)`` in pixel coordinates.
+
+    Returns
+    -------
+    ndarray
+        Warped image with the same shape and dtype as ``img``.
+    """
     m, n = img.shape[:2]
     xi, yi = np.meshgrid(np.arange(n).astype(np.float), np.arange(m).astype(np.float))
 
@@ -65,6 +95,21 @@ def warp_image_pc_single(img, flow):
 
 
 def warp_image_backwards(img, flow):
+    """Backward warp an image using OpenCV's remap interface.
+
+    Parameters
+    ----------
+    img : ndarray
+        Source image with shape ``(H, W, C)``.
+    flow : ndarray
+        Backward flow with shape ``(H, W, 2)`` mapping output pixels to source
+        locations.
+
+    Returns
+    -------
+    ndarray
+        Backward-warped image with the same shape and dtype as ``img``.
+    """
     h, w = flow.shape[:2]
     # flow = -flow
     tmp_flow = np.empty(flow.shape, np.array(flow).dtype)
@@ -77,7 +122,21 @@ def warp_image_backwards(img, flow):
 
 # moderngl-based fast forward warping, author: Cosmas Heiß
 class OnlineFrameWarper:
+    """Moderngl-backed forward warper for dense meshes."""
+
     def __init__(self, image_size):
+        """Initialise the warper and allocate moderngl buffers.
+
+        Parameters
+        ----------
+        image_size : tuple of int
+            Output image size as ``(height, width)``.
+
+        Raises
+        ------
+        ImportError
+            If ``moderngl`` is not installed.
+        """
         if not HAS_MODERNGL:
             raise ImportError(
                 "moderngl is required for OnlineFrameWarper. Install the gui extra: 'pip install neurovc[gui]'"
@@ -122,6 +181,14 @@ class OnlineFrameWarper:
         self.frame_buffer = self.ctx.simple_framebuffer(image_size[::-1])
 
     def get_dummy_vertices(self):
+        """Return a dummy vertex buffer covering the full image plane.
+
+        Returns
+        -------
+        bytes
+            Vertex buffer encoded as 32-bit floats arranged in
+            ``(x, y, r, g, b, depth)`` order.
+        """
         image = np.zeros((*self.image_size, 3))
         xx, yy = np.meshgrid(
             np.linspace(-1, 1, self.image_size[1], endpoint=True),
@@ -132,9 +199,37 @@ class OnlineFrameWarper:
         return self.get_into_vertex_buffer_shape(image, displacements, depth)
 
     def vertices_astype(self, vertices):
+        """Convert vertex arrays to 32-bit floating point byte buffers.
+
+        Parameters
+        ----------
+        vertices : ndarray
+            Vertex array to serialise.
+
+        Returns
+        -------
+        bytes
+            Serialised vertex buffer.
+        """
         return vertices.astype("f4").tobytes()
 
     def get_into_vertex_buffer_shape(self, image, displacements, depth):
+        """Pack image, displacement, and depth channels into vertex layout.
+
+        Parameters
+        ----------
+        image : ndarray
+            RGB image normalised to ``[0, 1]`` with shape ``(H, W, 3)``.
+        displacements : ndarray
+            Flow field with shape ``(H, W, 2)``.
+        depth : ndarray
+            Depth buffer with shape ``(H, W)``.
+
+        Returns
+        -------
+        bytes
+            Serialised vertex buffer for the triangle strip.
+        """
         vertices = np.concatenate((displacements, image, depth[:, :, None]), axis=2)[
             self.strip_indices[:, 0], self.strip_indices[:, 1]
         ]
@@ -150,6 +245,13 @@ class OnlineFrameWarper:
     #    return self.vertices_astype(cp.asnumpy(vertices))
 
     def generate_triangle_strip_index_array(self):
+        """Generate a scan-line triangle strip index buffer.
+
+        Returns
+        -------
+        ndarray
+            Array of indices with shape ``(N, 2)`` describing the strip order.
+        """
         out_indices_x = []
         out_indices_y = []
         for i in range(self.image_size[1] - 1):
@@ -162,17 +264,52 @@ class OnlineFrameWarper:
         return np.stack((out_indices_x, out_indices_y), axis=1)
 
     def read_frame_buffer(self):
+        """Return the framebuffer contents as ``uint8`` pixels.
+
+        Returns
+        -------
+        ndarray
+            Array containing the framebuffer data with shape ``(H, W, 4)``.
+        """
         return np.frombuffer(self.frame_buffer.read(), "uint8").reshape(
             self.image_size[0], self.image_size[1], -1
         )
 
     def pixel_to_screenspace_coords(self, displacements):
+        """Map pixel displacements to OpenGL clip-space coordinates.
+
+        Parameters
+        ----------
+        displacements : ndarray
+            Flow field with shape ``(H, W, 2)`` in pixel units.
+
+        Returns
+        -------
+        ndarray
+            Displacements mapped to clip space with the same shape as input.
+        """
         out = np.zeros_like(displacements)
         out[:, :, 1] = displacements[:, :, 0] * (2.0 / (self.image_size[0] - 1)) - 1.0
         out[:, :, 0] = displacements[:, :, 1] * (2.0 / (self.image_size[1] - 1)) - 1.0
         return out
 
     def warp_image(self, image, displacements, depth):
+        """Render an image under forward displacements and depth ordering.
+
+        Parameters
+        ----------
+        image : ndarray
+            Normalised RGB image in ``[0, 1]`` with shape ``(H, W, 3)``.
+        displacements : ndarray
+            Flow field with shape ``(H, W, 2)`` in pixel units.
+        depth : ndarray
+            Depth buffer with shape ``(H, W)``.
+
+        Returns
+        -------
+        ndarray
+            Rendered RGB image with shape ``(H, W, 3)`` and dtype ``float64``.
+        """
         assert image.dtype == displacements.dtype == depth.dtype == float
         assert np.all(np.logical_and(image <= 1.0, image >= 0.0))
         assert (
@@ -195,6 +332,23 @@ class OnlineFrameWarper:
         return self.read_frame_buffer()[:, :, :3]
 
     def warp_image_uv(self, image, uv, depth=None):
+        """Warp an image using UV flow (``u`` = x, ``v`` = y) and optional depth.
+
+        Parameters
+        ----------
+        image : ndarray
+            Source RGB image with shape ``(H, W, 3)``.
+        uv : ndarray
+            Flow field with shape ``(H, W, 2)`` where ``uv[..., 0]`` and
+            ``uv[..., 1]`` represent ``u`` and ``v`` displacements.
+        depth : ndarray, optional
+            Depth buffer with shape ``(H, W)``. If omitted, zeros are used.
+
+        Returns
+        -------
+        ndarray
+            Rendered RGB image with shape ``(H, W, 3)``.
+        """
         m, n = uv.shape[0:2]
 
         x, y = np.meshgrid(np.arange(n).astype(float), np.arange(m).astype(float))
@@ -210,6 +364,26 @@ class OnlineFrameWarper:
 
 
 def _to_bchw(image: "torch.Tensor") -> Tuple["torch.Tensor", str]:
+    """Convert an image tensor to ``(B, C, H, W)`` layout.
+
+    Parameters
+    ----------
+    image : torch.Tensor
+        Image tensor with 2–4 dimensions arranged as either
+        ``(H, W)``, ``(C, H, W)``, ``(H, W, C)``, or their batched variants.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor reshaped to ``(B, C, H, W)``.
+    str
+        Identifier describing the original layout so it can be restored later.
+
+    Raises
+    ------
+    ValueError
+        If the layout cannot be inferred unambiguously.
+    """
     tensor = image
     if tensor.ndim == 4:
         if tensor.shape[1] <= 4:
@@ -239,6 +413,25 @@ def _to_bchw(image: "torch.Tensor") -> Tuple["torch.Tensor", str]:
 
 
 def _from_bchw(tensor: "torch.Tensor", layout: str):
+    """Restore a tensor to its original layout after :func:`_to_bchw`.
+
+    Parameters
+    ----------
+    tensor : torch.Tensor
+        Tensor in ``(B, C, H, W)`` layout.
+    layout : str
+        Layout identifier returned by :func:`_to_bchw`.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor reshaped back to its original layout.
+
+    Raises
+    ------
+    ValueError
+        If ``layout`` is unknown.
+    """
     if layout == "bchw":
         return tensor
     if layout == "bhwc":
@@ -253,6 +446,26 @@ def _from_bchw(tensor: "torch.Tensor", layout: str):
 
 
 def _to_b2hw(flow: "torch.Tensor") -> Tuple["torch.Tensor", str]:
+    """Convert a flow tensor to ``(B, 2, H, W)`` layout.
+
+    Parameters
+    ----------
+    flow : torch.Tensor
+        Flow tensor with 3–4 dimensions arranged as either
+        ``(2, H, W)``, ``(H, W, 2)``, or their batched variants.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor reshaped to ``(B, 2, H, W)``.
+    str
+        Identifier describing the original layout.
+
+    Raises
+    ------
+    ValueError
+        If the layout cannot be inferred.
+    """
     tensor = flow
     if tensor.ndim == 4:
         if tensor.shape[1] == 2:
@@ -284,6 +497,33 @@ def _prepare_spatial_map(
     device: "torch.device",
     dtype: "torch.dtype",
 ):
+    """Broadcast a spatial map to ``(B, 1, H, W)``.
+
+    Parameters
+    ----------
+    value : array-like or torch.Tensor or None
+        Spatial weighting map. ``None`` results in a tensor of ones.
+    batch : int
+        Target batch size.
+    height : int
+        Target image height.
+    width : int
+        Target image width.
+    device : torch.device
+        Target device.
+    dtype : torch.dtype
+        Target dtype.
+
+    Returns
+    -------
+    torch.Tensor
+        Broadcasted tensor with shape ``(B, 1, H, W)``.
+
+    Raises
+    ------
+    ValueError
+        If ``value`` cannot be broadcast to the requested shape.
+    """
     if value is None:
         return torch.ones((batch, 1, height, width), device=device, dtype=dtype)
 
@@ -320,6 +560,22 @@ def _forward_splat_impl(
     flow: "torch.Tensor",
     weight_map: "torch.Tensor",
 ) -> "torch.Tensor":
+    """Perform weighted forward splatting in ``(B, C, H, W)`` layout.
+
+    Parameters
+    ----------
+    image : torch.Tensor
+        Image tensor in ``(B, C, H, W)`` layout.
+    flow : torch.Tensor
+        Flow tensor in ``(B, 2, H, W)`` layout.
+    weight_map : torch.Tensor
+        Per-pixel weights with shape ``(B, 1, H, W)``.
+
+    Returns
+    -------
+    torch.Tensor
+        Forward-splatted image in ``(B, C, H, W)`` layout.
+    """
     batch, channels, height, width = image.shape
     image_flat = image.view(batch, channels, height * width)
 
@@ -399,16 +655,31 @@ def _forward_splat_impl(
 
 
 def forward_splat(image, flow, weight=None):
-    """
-    Forward warp an image using bilinear splatting.
+    """Forward warp an image using bilinear splatting.
 
-    Args:
-        image: Tensor or array of shape (B, C, H, W), (C, H, W), (H, W, C) or (H, W).
-        flow: Tensor or array of shape (B, 2, H, W) or (H, W, 2).
-        weight: Optional per-pixel weight map broadcastable to (B, 1, H, W).
+    Parameters
+    ----------
+    image : array-like or torch.Tensor
+        Image in any supported layout, e.g. ``(B, C, H, W)``, ``(C, H, W)``,
+        ``(H, W, C)`` or ``(H, W)``.
+    flow : array-like or torch.Tensor
+        Flow field with layout ``(B, 2, H, W)`` or ``(H, W, 2)`` describing the
+        forward displacement per pixel.
+    weight : array-like or torch.Tensor, optional
+        Additional per-pixel weights broadcastable to ``(B, 1, H, W)``. When
+        omitted, uniform weights are used.
 
-    Returns:
-        Forward warped image with the same layout as the input.
+    Returns
+    -------
+    Same type as ``image``
+        Forward warped image converted back to the original layout and dtype.
+
+    Raises
+    ------
+    ImportError
+        If ``torch`` is not available.
+    ValueError
+        If image and flow batch or spatial dimensions do not align.
     """
     if not HAS_TORCH:
         raise ImportError("torch is required for forward splatting.")
@@ -467,18 +738,36 @@ def forward_splat(image, flow, weight=None):
 
 
 def softmax_splat(image, flow, importance, temperature=1.0, clamp=50.0):
-    """
-    Softmax splatting as proposed by Niklaus et al. (ECCV 2020).
+    """Forward warp an image using softmax splatting (Niklaus et al., 2020).
 
-    Args:
-        image: Tensor or array of shape (B, C, H, W), (C, H, W), or (H, W, C).
-        flow: Tensor or array of shape (B, 2, H, W) or (H, W, 2).
-        importance: Importance/occlusion map broadcastable to (B, 1, H, W).
-        temperature: Softmax temperature (higher sharpens, lower smooths).
-        clamp: Numeric stability clamp for exponent arguments.
+    Parameters
+    ----------
+    image : array-like or torch.Tensor
+        Image tensor in any layout supported by :func:`forward_splat`.
+    flow : array-like or torch.Tensor
+        Flow field with layout ``(B, 2, H, W)`` or ``(H, W, 2)`` describing the
+        forward displacement per pixel.
+    importance : array-like or torch.Tensor
+        Importance or occlusion map broadcastable to ``(B, 1, H, W)`` that
+        controls blending weights.
+    temperature : float, optional
+        Softmax temperature. Higher values sharpen the aggregation and lower
+        values smooth the blend. Default is ``1.0``.
+    clamp : float, optional
+        Absolute value used to clamp the exponent for numerical stability.
+        Default is ``50.0``.
 
-    Returns:
+    Returns
+    -------
+    Same type as ``image``
         Forward warped image aggregated with softmax-normalised weights.
+
+    Raises
+    ------
+    ImportError
+        If ``torch`` is not available.
+    ValueError
+        If image and flow batch or spatial dimensions do not align.
     """
     if not HAS_TORCH:
         raise ImportError("torch is required for softmax splatting.")
@@ -540,14 +829,7 @@ def softmax_splat(image, flow, importance, temperature=1.0, clamp=50.0):
 
 
 class TorchForwardSplatWarper:
-    """
-    Torch-based alternative to the moderngl warper using forward splatting.
-
-    Args:
-        mode: 'average' for simple barycentric averaging, 'softmax' for softmax splatting.
-        temperature: Softmax temperature (only used in 'softmax' mode).
-        clamp: Clamp value for numeric stability in the exponent.
-    """
+    """Torch implementation of forward and softmax splatting."""
 
     def __init__(
         self, mode: str = "average", temperature: float = 1.0, clamp: float = 50.0

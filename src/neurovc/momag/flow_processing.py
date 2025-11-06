@@ -34,10 +34,38 @@ def _identity(frame):
 
 
 def get_motion_magnitude(w):
+    """Compute the magnitude of a 2D flow field.
+
+    Parameters
+    ----------
+    w : ndarray
+        Flow field with shape ``(H, W, 2)``.
+
+    Returns
+    -------
+    ndarray
+        Magnitude map with shape ``(H, W)``.
+    """
     return np.sqrt(w[:, :, 0] * w[:, :, 0] + w[:, :, 1] * w[:, :, 1])
 
 
 def compressive_function(G_mag, alpha, beta):
+    """Apply a compressive non-linearity to a magnitude map.
+
+    Parameters
+    ----------
+    G_mag : ndarray
+        Magnitude map.
+    alpha : float
+        Scaling factor.
+    beta : float
+        Compression exponent between 0 and 1.
+
+    Returns
+    -------
+    ndarray
+        Compressed magnitude map.
+    """
     eps = 0.1
     beta = 1 - beta
     G_mag[G_mag < eps] = eps
@@ -66,6 +94,22 @@ class ConstCompressor(MagnitudeCompressor):
 
 
 def compressive_function_thresh(G_mag, alpha, threshold):
+    """Scale magnitudes below ``threshold`` by ``alpha``.
+
+    Parameters
+    ----------
+    G_mag : ndarray
+        Magnitude map.
+    alpha : float
+        Multiplicative factor for values below ``threshold``.
+    threshold : float
+        Threshold separating scaled and untouched regions.
+
+    Returns
+    -------
+    ndarray
+        Adjusted magnitude map.
+    """
     g_comp = G_mag
     g_comp[G_mag < threshold] *= alpha
     return g_comp
@@ -78,6 +122,24 @@ class ThreshCompressor(MagnitudeCompressor):
 
 @jit(nopython=True)
 def diffusion_loop(img_out, idx, k, h=1):
+    """Perform iterative diffusion over selected pixels.
+
+    Parameters
+    ----------
+    img_out : ndarray
+        Image to be diffused.
+    idx : ndarray
+        Array of pixel coordinates for diffusion updates.
+    k : int
+        Number of iterations.
+    h : float, optional
+        Diffusion step size. Default is ``1``.
+
+    Returns
+    -------
+    ndarray
+        Diffused image array.
+    """
     for time in range(k):
         for i, j in idx:
             img_out[i, j] += (0.25 / (h * h)) * (
@@ -92,13 +154,26 @@ def diffusion_loop(img_out, idx, k, h=1):
 
 
 class FlowDecomposer:
+    """Split dense flow into global and local components inside a mask."""
+
     def __init__(self, landmarks, dims, *idx):
+        """
+        Parameters
+        ----------
+        landmarks : ndarray
+            Landmark coordinates with shape ``(N, 3)``.
+        dims : tuple of int
+            Flow dimensions as ``(height, width)``.
+        *idx : iterable of int
+            Landmark indices describing polygon regions.
+        """
         self.idx = np.array(idx)
         self.dims = dims
         self.mask = None
         self.update_mask(landmarks)
 
     def update_mask(self, landmarks):
+        """Recompute the diffusion mask from landmark polygons."""
         m, n = self.dims[0:2]
         img = Image.new("F", (n, m), 0.0)
 
@@ -119,6 +194,7 @@ class FlowDecomposer:
         self.mask = cv2.dilate(img, circle, iterations=16)
 
     def decompose(self, flow):
+        """Return global and local components of ``flow``."""
         mask_tmp = self.mask  # warp_image_pc_single(self.mask, flow)
 
         flow_global = np.empty(flow.shape, flow.dtype)
@@ -131,6 +207,7 @@ class FlowDecomposer:
         return flow_global, flow_local
 
     def __flow_mag(self, flow, normalize=True):
+        """Compute magnitude of ``flow`` optionally normalised to [0, 1]."""
         tmp = np.sqrt(
             np.multiply(flow[:, :, 0], flow[:, :, 0])
             + np.multiply(flow[:, :, 1], flow[:, :, 1])
@@ -143,6 +220,7 @@ class FlowDecomposer:
         return tmp
 
     def __diffusion(self, img, mask):
+        """Diffuse ``img`` within ``mask`` to produce a smooth global flow."""
         idx = np.argwhere(mask != 0)
 
         img_out = np.empty(img.shape, img.dtype)
@@ -175,7 +253,19 @@ class FlowDecomposer:
 
 
 class BasicMagnifier:
+    """Base class encapsulating the optical-flow magnification pipeline."""
+
     def __init__(self, attenuation_function=None, augmentor=None, mesh_processor=None):
+        """
+        Parameters
+        ----------
+        attenuation_function : callable, optional
+            Function applied to the flow magnitude before recombination.
+        augmentor : callable, optional
+            Preprocessing function applied to frames prior to flow estimation.
+        mesh_processor : callable, optional
+            Processor that extracts mesh or landmark information from frames.
+        """
         self._augmentor = augmentor if augmentor is not None else _identity
 
         if attenuation_function is None:
@@ -198,11 +288,13 @@ class BasicMagnifier:
         self.last_flow = None
 
     def _do_init(self, ref):
+        """Initialise the internal frame warper based on ``ref``."""
         m, n = ref.shape[0:2]
         self.framewarper = OnlineFrameWarper((m, n))
         self._init = True
 
     def update_reference(self, ref, landmarks=None):
+        """Update the reference frame and optional landmark information."""
         self.ref = ref
         self.results_ref = landmarks
         if landmarks is None and self.mesh_processor is not None:
@@ -213,6 +305,7 @@ class BasicMagnifier:
             self._do_init(ref)
 
     def get_flow(self, frame):
+        """Compute dense optical flow between the reference and ``frame``."""
         w = self.OF_inst.calc(
             self._augmentor(self.ref), self._augmentor(frame), self.last_flow
         )
@@ -220,6 +313,7 @@ class BasicMagnifier:
         return w
 
     def __call__(self, frame):
+        """Update internal state using ``frame`` and return it unchanged."""
         if not self._init:
             self.update_reference(frame)
         _ = self.get_flow(frame)
@@ -227,12 +321,28 @@ class BasicMagnifier:
 
 
 class AlphaLooper:
+    """Iterate through magnification factors to animate motion magnification.
+
+    The values loop forward and backward across the specified range so repeated
+    calls produce a smooth oscillation that can, for example, be used to render
+    a video sequence from a fixed reference frame and its magnified variant.
+    """
+
     def __init__(self, alpha, step):
+        """
+        Parameters
+        ----------
+        alpha : tuple of float
+            Start and end values of the magnitude range.
+        step : float
+            Increment between consecutive magnitude values.
+        """
         self.alpha = np.arange(alpha[0], alpha[1], 0.5)
         self.idx = 0
         self.__forward = True
 
     def __call__(self):
+        """Return the next magnification factor in the alternating sequence."""
         if self.__forward:
             alpha = self.alpha[self.idx]
         else:
@@ -242,12 +352,16 @@ class AlphaLooper:
         return alpha
 
     def reset(self):
+        """Reset the iterator to the start of the sequence."""
         self.idx = 0
         self.__forward = True
 
 
 class MagnificationTask:
+    """High-level task managing motion magnification with landmark cues."""
+
     def __init__(self):
+        """Initialise buffers, optical flow magnifiers, and face mesh."""
         self.buffer = CircularFrameBuffer(10)
         self.last_local_flow = None
         self.last_global_flow = None
@@ -282,6 +396,7 @@ class MagnificationTask:
         self.results_ref = None
 
     def __call__(self, frame):
+        """Process ``frame`` to update reference buffers and flow state."""
         buf = self.buffer.get_oldest()
         results_frame = self.face_mesh.process(frame)
 
@@ -327,6 +442,7 @@ class MagnificationTask:
         self.last_global_depth = global_depth
 
     def get_mag(self, alpha):
+        """Return the most recent frame warped with magnification ``alpha``."""
         if self.last_global_flow is None or self.last_local_flow is None:
             return self.last_frame
         flow = self.last_global_flow + self.last_local_flow
@@ -337,6 +453,7 @@ class MagnificationTask:
         )
 
     def update_flow(self):
+        """Refresh cached global and local flow components."""
         try:
             flow_global, flow_local = self.current_magnifier(
                 self.last_frame, self.results_frame
@@ -347,6 +464,7 @@ class MagnificationTask:
             pass
 
     def set_magnifier(self, key, update_flow=False):
+        """Switch the active magnifier using a numeric keyboard key."""
         key = key & 0xFF
         if key in self.magnifiers.keys():
             self.current_magnifier = self.magnifiers[key]
