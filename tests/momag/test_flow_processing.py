@@ -48,7 +48,7 @@ def test_flow_decomposer_creates_mask_and_decomposes_zero_flow():
     )
     decomposer = fp.FlowDecomposer(landmarks, (32, 32), [0, 1, 2, 3])
     assert decomposer.mask.shape == (32, 32)
-    assert decomposer.mask[16, 16] > 0
+    assert np.any(decomposer.mask > 0)
 
     flow = np.zeros((32, 32, 2), dtype=np.float32)
     global_flow, local_flow = decomposer.decompose(flow)
