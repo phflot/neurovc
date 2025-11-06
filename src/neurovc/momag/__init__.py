@@ -2,9 +2,11 @@ from . import flow_processing as _flow_processing
 from . import framewarpers as _framewarpers
 
 HAS_MODERNGL = _framewarpers.HAS_MODERNGL
+HAS_TORCH = _framewarpers.HAS_TORCH
 
 __all__ = [
     "HAS_MODERNGL",
+    "HAS_TORCH",
     *_flow_processing.__all__,
     *_framewarpers.__all__,
 ]

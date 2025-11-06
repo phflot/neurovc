@@ -8,9 +8,18 @@ except ModuleNotFoundError:
     moderngl = None
     HAS_MODERNGL = False
 
+try:
+    import torch
+
+    HAS_TORCH = True
+except ModuleNotFoundError:
+    torch = None
+    HAS_TORCH = False
+
 import numpy as np
 from scipy.interpolate import griddata
 import cv2
+from typing import Tuple
 
 
 def warp_image_pc(img, flow):
@@ -200,10 +209,379 @@ class OnlineFrameWarper:
         return self.warp_image(np.array(image).astype(float) / 255.0, tmp_flow, depth)
 
 
+def _to_bchw(image: "torch.Tensor") -> Tuple["torch.Tensor", str]:
+    tensor = image
+    if tensor.ndim == 4:
+        if tensor.shape[1] <= 4:
+            layout = "bchw"
+        elif tensor.shape[-1] <= 4:
+            tensor = tensor.permute(0, 3, 1, 2)
+            layout = "bhwc"
+        else:
+            raise ValueError("Expected channels-first or channels-last 4D tensor.")
+    elif tensor.ndim == 3:
+        if tensor.shape[0] <= 4 and tensor.shape[0] != tensor.shape[2]:
+            tensor = tensor.unsqueeze(0)
+            layout = "chw"
+        elif tensor.shape[-1] <= 4:
+            tensor = tensor.permute(2, 0, 1).unsqueeze(0)
+            layout = "hwc"
+        else:
+            raise ValueError(
+                "Ambiguous 3D tensor layout; cannot infer channel dimension."
+            )
+    elif tensor.ndim == 2:
+        tensor = tensor.unsqueeze(0).unsqueeze(0)
+        layout = "hw"
+    else:
+        raise ValueError("Expected tensor with 2 to 4 dimensions.")
+    return tensor, layout
+
+
+def _from_bchw(tensor: "torch.Tensor", layout: str):
+    if layout == "bchw":
+        return tensor
+    if layout == "bhwc":
+        return tensor.permute(0, 2, 3, 1)
+    if layout == "chw":
+        return tensor.squeeze(0)
+    if layout == "hwc":
+        return tensor.squeeze(0).permute(1, 2, 0)
+    if layout == "hw":
+        return tensor.squeeze(0).squeeze(0)
+    raise ValueError(f"Unknown layout identifier '{layout}'.")
+
+
+def _to_b2hw(flow: "torch.Tensor") -> Tuple["torch.Tensor", str]:
+    tensor = flow
+    if tensor.ndim == 4:
+        if tensor.shape[1] == 2:
+            layout = "b2hw"
+        elif tensor.shape[-1] == 2:
+            tensor = tensor.permute(0, 3, 1, 2)
+            layout = "bhw2"
+        else:
+            raise ValueError("Expected flow tensor with 2 channels.")
+    elif tensor.ndim == 3:
+        if tensor.shape[0] == 2:
+            tensor = tensor.unsqueeze(0)
+            layout = "2hw"
+        elif tensor.shape[-1] == 2:
+            tensor = tensor.permute(2, 0, 1).unsqueeze(0)
+            layout = "hw2"
+        else:
+            raise ValueError("Expected flow tensor with 2 components.")
+    else:
+        raise ValueError("Flow tensor must have 3 or 4 dimensions.")
+    return tensor, layout
+
+
+def _prepare_spatial_map(
+    value,
+    batch: int,
+    height: int,
+    width: int,
+    device: "torch.device",
+    dtype: "torch.dtype",
+):
+    if value is None:
+        return torch.ones((batch, 1, height, width), device=device, dtype=dtype)
+
+    tensor = value if torch.is_tensor(value) else torch.as_tensor(value, device=device)
+    tensor = tensor.to(device=device, dtype=dtype)
+
+    if tensor.ndim == 4:
+        if tensor.shape[0] not in (1, batch):
+            raise ValueError("Spatial map batch dimension does not match image batch.")
+        if tensor.shape[0] == 1 and batch != 1:
+            tensor = tensor.expand(batch, *tensor.shape[1:])
+        if tensor.shape[1] == 1:
+            return tensor.contiguous()
+        if tensor.shape[-1] == 1:
+            return tensor.permute(0, 3, 1, 2).contiguous()
+    elif tensor.ndim == 3:
+        if tensor.shape[0] == batch:
+            return tensor.unsqueeze(1).contiguous()
+        if tensor.shape[0] == 1 and batch != 1:
+            tensor = tensor.expand(batch, -1, -1)
+            return tensor.unsqueeze(1).contiguous()
+        if tensor.shape == (height, width):
+            tensor = tensor.unsqueeze(0).expand(batch, -1, -1)
+            return tensor.unsqueeze(1).contiguous()
+    elif tensor.ndim == 2 and tensor.shape == (height, width):
+        tensor = tensor.unsqueeze(0).unsqueeze(0).expand(batch, 1, -1, -1)
+        return tensor.contiguous()
+
+    raise ValueError("Spatial map must broadcast to shape (B, 1, H, W).")
+
+
+def _forward_splat_impl(
+    image: "torch.Tensor",
+    flow: "torch.Tensor",
+    weight_map: "torch.Tensor",
+) -> "torch.Tensor":
+    batch, channels, height, width = image.shape
+    image_flat = image.view(batch, channels, height * width)
+
+    device = image.device
+    dtype = image.dtype
+
+    yy, xx = torch.meshgrid(
+        torch.arange(height, device=device, dtype=dtype),
+        torch.arange(width, device=device, dtype=dtype),
+        indexing="ij",
+    )
+    xx = xx.unsqueeze(0).expand(batch, -1, -1)
+    yy = yy.unsqueeze(0).expand(batch, -1, -1)
+
+    flow_x = flow[:, 0, :, :]
+    flow_y = flow[:, 1, :, :]
+
+    target_x = xx + flow_x
+    target_y = yy + flow_y
+
+    x0 = torch.floor(target_x)
+    y0 = torch.floor(target_y)
+    x1 = x0 + 1
+    y1 = y0 + 1
+
+    fx = target_x - x0
+    fy = target_y - y0
+
+    def _mask(x_coord, y_coord):
+        return (
+            (x_coord >= 0)
+            & (x_coord <= width - 1)
+            & (y_coord >= 0)
+            & (y_coord <= height - 1)
+        ).to(dtype)
+
+    base_weight = weight_map.squeeze(1)
+
+    mask00 = _mask(x0, y0)
+    mask10 = _mask(x1, y0)
+    mask01 = _mask(x0, y1)
+    mask11 = _mask(x1, y1)
+
+    w00 = (1 - fx) * (1 - fy) * base_weight * mask00
+    w10 = fx * (1 - fy) * base_weight * mask10
+    w01 = (1 - fx) * fy * base_weight * mask01
+    w11 = fx * fy * base_weight * mask11
+
+    x0i = x0.clamp(0, width - 1).long()
+    x1i = x1.clamp(0, width - 1).long()
+    y0i = y0.clamp(0, height - 1).long()
+    y1i = y1.clamp(0, height - 1).long()
+
+    out = torch.zeros((batch, channels, height * width), device=device, dtype=dtype)
+    den = torch.zeros((batch, 1, height * width), device=device, dtype=dtype)
+
+    def _splat(weights, x_idx, y_idx):
+        if torch.count_nonzero(weights) == 0:
+            return
+        linear_idx = (y_idx * width + x_idx).view(batch, 1, -1)
+        weights_flat = weights.view(batch, 1, -1)
+        expanded_idx = linear_idx.expand(-1, channels, -1)
+
+        out.scatter_add_(2, expanded_idx, image_flat * weights_flat)
+        den.scatter_add_(2, linear_idx, weights_flat)
+
+    for weights, x_idx, y_idx in (
+        (w00, x0i, y0i),
+        (w10, x1i, y0i),
+        (w01, x0i, y1i),
+        (w11, x1i, y1i),
+    ):
+        _splat(weights, x_idx, y_idx)
+
+    den = torch.where(den == 0, torch.ones_like(den), den)
+    return (out / den).view(batch, channels, height, width)
+
+
+def forward_splat(image, flow, weight=None):
+    """
+    Forward warp an image using bilinear splatting.
+
+    Args:
+        image: Tensor or array of shape (B, C, H, W), (C, H, W), (H, W, C) or (H, W).
+        flow: Tensor or array of shape (B, 2, H, W) or (H, W, 2).
+        weight: Optional per-pixel weight map broadcastable to (B, 1, H, W).
+
+    Returns:
+        Forward warped image with the same layout as the input.
+    """
+    if not HAS_TORCH:
+        raise ImportError("torch is required for forward splatting.")
+
+    input_is_tensor = torch.is_tensor(image)
+    input_is_numpy = isinstance(image, np.ndarray)
+    orig_numpy_dtype = image.dtype if input_is_numpy else None
+    image_tensor = image if input_is_tensor else torch.as_tensor(image)
+    flow_tensor = flow if torch.is_tensor(flow) else torch.as_tensor(flow)
+
+    orig_dtype = image_tensor.dtype
+    orig_device = image_tensor.device if input_is_tensor else None
+
+    flow_tensor = flow_tensor.to(torch.float32)
+    target_device = flow_tensor.device
+    image_tensor = image_tensor.to(torch.float32, device=target_device)
+    flow_tensor = flow_tensor.to(device=target_device)
+
+    image_bchw, image_layout = _to_bchw(image_tensor)
+    flow_b2hw, _ = _to_b2hw(flow_tensor)
+
+    if image_bchw.shape[0] != flow_b2hw.shape[0]:
+        if image_bchw.shape[0] == 1:
+            image_bchw = image_bchw.expand(flow_b2hw.shape[0], -1, -1, -1)
+        elif flow_b2hw.shape[0] == 1:
+            flow_b2hw = flow_b2hw.expand(image_bchw.shape[0], -1, -1, -1)
+        else:
+            raise ValueError("Image and flow batch sizes must match.")
+
+    if image_bchw.shape[2:] != flow_b2hw.shape[2:]:
+        raise ValueError("Image and flow spatial dimensions must align.")
+
+    weight_map = _prepare_spatial_map(
+        weight,
+        image_bchw.shape[0],
+        image_bchw.shape[2],
+        image_bchw.shape[3],
+        image_bchw.device,
+        image_bchw.dtype,
+    )
+
+    result = _forward_splat_impl(image_bchw, flow_b2hw, weight_map)
+    result = _from_bchw(result, image_layout)
+
+    if input_is_tensor:
+        result = result.to(dtype=orig_dtype)
+        if orig_device is not None:
+            result = result.to(device=orig_device)
+        return result
+    if input_is_numpy:
+        np_result = result.cpu().numpy()
+        if orig_numpy_dtype is not None:
+            np_result = np_result.astype(orig_numpy_dtype, copy=False)
+        return np_result
+    return result
+
+
+def softmax_splat(image, flow, importance, temperature=1.0, clamp=50.0):
+    """
+    Softmax splatting as proposed by Niklaus et al. (ECCV 2020).
+
+    Args:
+        image: Tensor or array of shape (B, C, H, W), (C, H, W), or (H, W, C).
+        flow: Tensor or array of shape (B, 2, H, W) or (H, W, 2).
+        importance: Importance/occlusion map broadcastable to (B, 1, H, W).
+        temperature: Softmax temperature (higher sharpens, lower smooths).
+        clamp: Numeric stability clamp for exponent arguments.
+
+    Returns:
+        Forward warped image aggregated with softmax-normalised weights.
+    """
+    if not HAS_TORCH:
+        raise ImportError("torch is required for softmax splatting.")
+
+    input_is_tensor = torch.is_tensor(image)
+    input_is_numpy = isinstance(image, np.ndarray)
+    orig_numpy_dtype = image.dtype if input_is_numpy else None
+    image_tensor = image if input_is_tensor else torch.as_tensor(image)
+    flow_tensor = flow if torch.is_tensor(flow) else torch.as_tensor(flow)
+
+    orig_dtype = image_tensor.dtype
+    orig_device = image_tensor.device if input_is_tensor else None
+
+    flow_tensor = flow_tensor.to(torch.float32)
+    target_device = flow_tensor.device
+    image_tensor = image_tensor.to(torch.float32, device=target_device)
+    flow_tensor = flow_tensor.to(device=target_device)
+
+    image_bchw, image_layout = _to_bchw(image_tensor)
+    flow_b2hw, _ = _to_b2hw(flow_tensor)
+
+    if image_bchw.shape[0] != flow_b2hw.shape[0]:
+        if image_bchw.shape[0] == 1:
+            image_bchw = image_bchw.expand(flow_b2hw.shape[0], -1, -1, -1)
+        elif flow_b2hw.shape[0] == 1:
+            flow_b2hw = flow_b2hw.expand(image_bchw.shape[0], -1, -1, -1)
+        else:
+            raise ValueError("Image and flow batch sizes must match.")
+
+    if image_bchw.shape[2:] != flow_b2hw.shape[2:]:
+        raise ValueError("Image and flow spatial dimensions must align.")
+
+    importance_map = _prepare_spatial_map(
+        importance,
+        image_bchw.shape[0],
+        image_bchw.shape[2],
+        image_bchw.shape[3],
+        image_bchw.device,
+        image_bchw.dtype,
+    )
+
+    scaled = torch.clamp(importance_map * temperature, min=-clamp, max=clamp)
+    weight_map = torch.exp(scaled)
+
+    result = _forward_splat_impl(image_bchw, flow_b2hw, weight_map)
+    result = _from_bchw(result, image_layout)
+
+    if input_is_tensor:
+        result = result.to(dtype=orig_dtype)
+        if orig_device is not None:
+            result = result.to(device=orig_device)
+        return result
+    if input_is_numpy:
+        np_result = result.cpu().numpy()
+        if orig_numpy_dtype is not None:
+            np_result = np_result.astype(orig_numpy_dtype, copy=False)
+        return np_result
+    return result
+
+
+class TorchForwardSplatWarper:
+    """
+    Torch-based alternative to the moderngl warper using forward splatting.
+
+    Args:
+        mode: 'average' for simple barycentric averaging, 'softmax' for softmax splatting.
+        temperature: Softmax temperature (only used in 'softmax' mode).
+        clamp: Clamp value for numeric stability in the exponent.
+    """
+
+    def __init__(
+        self, mode: str = "average", temperature: float = 1.0, clamp: float = 50.0
+    ):
+        if not HAS_TORCH:
+            raise ImportError("torch is required for TorchForwardSplatWarper.")
+        if mode not in {"average", "softmax"}:
+            raise ValueError("mode must be either 'average' or 'softmax'.")
+        self.mode = mode
+        self.temperature = temperature
+        self.clamp = clamp
+
+    def __call__(self, image, flow, *, importance=None, weight=None):
+        if self.mode == "average":
+            return forward_splat(image, flow, weight=weight)
+        if importance is None:
+            raise ValueError("importance map must be provided for softmax splatting.")
+        return softmax_splat(
+            image,
+            flow,
+            importance=importance,
+            temperature=self.temperature,
+            clamp=self.clamp,
+        )
+
+
 __all__ = [
     "HAS_MODERNGL",
+    "HAS_TORCH",
     "warp_image_pc",
     "warp_image_pc_single",
     "warp_image_backwards",
     "OnlineFrameWarper",
+    "forward_splat",
+    "softmax_splat",
+    "TorchForwardSplatWarper",
 ]
