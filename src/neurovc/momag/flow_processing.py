@@ -2,6 +2,7 @@
 
 from PIL import Image, ImageDraw
 import cv2
+import mediapipe as mp
 import numpy as np
 from numba import jit
 from scipy.interpolate import griddata
@@ -11,14 +12,6 @@ import neurovc
 import neurovc as nvc
 from neurovc.momag.framewarpers import OnlineFrameWarper, warp_image_backwards
 from neurovc.util.IO_util import CircularFrameBuffer
-
-try:
-    import mediapipe as mp
-
-    HAS_MEDIAPIPE = True
-except ModuleNotFoundError:
-    mp = None
-    HAS_MEDIAPIPE = False
 
 __author__ = "Philipp Flotho"
 
@@ -255,10 +248,6 @@ class AlphaLooper:
 
 class MagnificationTask:
     def __init__(self):
-        if not HAS_MEDIAPIPE:
-            raise ImportError(
-                "mediapipe is required for MagnificationTask. Install the landmark extra: 'pip install neurovc[landmark]'"
-            )
         self.buffer = CircularFrameBuffer(10)
         self.last_local_flow = None
         self.last_global_flow = None
@@ -390,10 +379,6 @@ class OnlineLandmarkMagnifier(BasicMagnifier):
         attenuation_function=None,
         augmentor=None,
     ):
-        if not HAS_MEDIAPIPE:
-            raise ImportError(
-                "mediapipe is required for OnlineLandmarkMagnifier. Install the landmark extra: 'pip install neurovc[landmark]'"
-            )
         super().__init__(
             attenuation_function=attenuation_function,
             mesh_processor=FacialMeshProcessor(),
@@ -629,10 +614,6 @@ class FacialMeshProcessor:
     ]
 
     def __init__(self):
-        if not HAS_MEDIAPIPE:
-            raise ImportError(
-                "mediapipe is required for FacialMeshProcessor. Install the landmark extra: 'pip install neurovc[landmark]'"
-            )
         mp_drawing = mp.solutions.drawing_utils
         mp_face_mesh = mp.solutions.face_mesh
         self.drawing_spec = mp_drawing.DrawingSpec(
@@ -672,7 +653,6 @@ class FacialMeshProcessor:
 
 
 __all__ = [
-    "HAS_MEDIAPIPE",
     "MagnitudeCompressor",
     "GradMagnitudeCompressor",
     "ConstCompressor",

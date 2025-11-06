@@ -1,11 +1,9 @@
 from . import flow_processing as _flow_processing
 from . import framewarpers as _framewarpers
 
-HAS_MEDIAPIPE = _flow_processing.HAS_MEDIAPIPE
 HAS_MODERNGL = _framewarpers.HAS_MODERNGL
 
 __all__ = [
-    "HAS_MEDIAPIPE",
     "HAS_MODERNGL",
     *_flow_processing.__all__,
     *_framewarpers.__all__,
