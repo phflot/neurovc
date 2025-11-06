@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neurovc"
-version = "0.0.1-alpha.4"
+dynamic = ["version"]
 description = "Framework for Computer Vision setups in Neuroscience"
 readme = "README.md"
 authors = [
@@ -102,5 +102,9 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["."]
-exclude = ["tests*", "docs*"]
+where = ["src"]
+
+[tool.setuptools_scm]
+version_file = "src/pyflowreg/_version.py"
+version_scheme = "no-guess-dev"
+local_scheme = "no-local-version"
