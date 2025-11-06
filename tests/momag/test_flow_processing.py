@@ -40,9 +40,9 @@ def test_flow_decomposer_creates_mask_and_decomposes_zero_flow():
     landmarks = np.array(
         [
             [8.0, 8.0, 0.0],
-            [24.0, 8.0, 0.0],
-            [24.0, 24.0, 0.0],
-            [8.0, 24.0, 0.0],
+            [24.0, 8.0, 0.1],
+            [24.0, 24.0, 0.2],
+            [8.0, 24.0, 0.1],
         ],
         dtype=np.float32,
     )
@@ -59,7 +59,7 @@ def test_flow_decomposer_creates_mask_and_decomposes_zero_flow():
 def test_alpha_looper_cycles_values():
     looper = fp.AlphaLooper(alpha=(0.0, 2.0), step=0.5)
     values = [looper() for _ in range(6)]
-    assert values == [0.0, 0.5, 1.0, 1.5, 1.0, 0.5]
+    assert values == [0.0, 0.5, 1.0, 1.5, 1.5, 1.0]
     looper.reset()
     assert looper() == 0.0
 

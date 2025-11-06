@@ -328,7 +328,7 @@ class AlphaLooper:
     a video sequence from a fixed reference frame and its magnified variant.
     """
 
-    def __init__(self, alpha, step):
+    def __init__(self, alpha, step=0.5):
         """
         Parameters
         ----------
@@ -337,7 +337,7 @@ class AlphaLooper:
         step : float
             Increment between consecutive magnitude values.
         """
-        self.alpha = np.arange(alpha[0], alpha[1], 0.5)
+        self.alpha = np.arange(alpha[0], alpha[1], step)
         self.idx = 0
         self.__forward = True
 
