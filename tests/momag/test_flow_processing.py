@@ -39,10 +39,10 @@ def test_thresh_compressor_applies_threshold():
 def test_flow_decomposer_creates_mask_and_decomposes_zero_flow():
     landmarks = np.array(
         [
-            [8.0, 8.0, 0.0],
-            [24.0, 8.0, 0.1],
-            [24.0, 24.0, 0.2],
-            [8.0, 24.0, 0.1],
+            [8.0, 8.0, -0.2],
+            [24.0, 8.0, -0.1],
+            [24.0, 24.0, 0.1],
+            [8.0, 24.0, 0.3],
         ],
         dtype=np.float32,
     )
