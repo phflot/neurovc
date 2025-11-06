@@ -11,7 +11,21 @@ authors = [
     { name = "Philipp Flotho", email = "Philipp.Flotho@uni-saarland.de" }
 ]
 license = { text = "CC BY-NC-SA 4.0" }
-requires-python = ">=3.6"
+requires-python = ">=3.10"
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: Other/Proprietary License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
 
 dependencies = [
     "numpy>=1.24.0",
@@ -33,6 +47,10 @@ landmark = [
 ]
 torch = [
     "torch>=2.4.0",
+]
+test = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
 ]
 
 [tool.setuptools.packages.find]
