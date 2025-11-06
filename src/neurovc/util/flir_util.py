@@ -1,13 +1,33 @@
-import PySpin
-from time import time
-from screening_demo.stereo_config import GenericCamera
-from time import time
-from threading import Thread
 from collections import deque
+from threading import Thread
+from time import time
+
+try:
+    import PySpin
+
+    HAS_PYSPIN = True
+except ModuleNotFoundError:
+    PySpin = None  # type: ignore[assignment]
+    HAS_PYSPIN = False
+
+try:
+    from screening_demo.stereo_config import GenericCamera as _ScreeningGenericCamera
+
+    HAS_SCREENING_DEMO = True
+except ModuleNotFoundError:
+    HAS_SCREENING_DEMO = False
+    from neurovc.util.camera_util import GenericCamera  # fallback stub
+else:
+    GenericCamera = _ScreeningGenericCamera
+    del _ScreeningGenericCamera
 
 
 class ThermalGrabber(Thread):
     def __init__(self, i=0):
+        if not HAS_PYSPIN:
+            raise ImportError(
+                "PySpin is required for ThermalGrabber. Install the proprietary Spinnaker SDK to enable this feature."
+            )
         Thread.__init__(self)
         self.__cam_id = i
         self.cam = None
@@ -23,16 +43,19 @@ class ThermalGrabber(Thread):
 
         # Get current library version
         version = system.GetLibraryVersion()
-        print('Library version: %d.%d.%d.%d' % (version.major, version.minor, version.type, version.build))
+        print(
+            "Library version: %d.%d.%d.%d"
+            % (version.major, version.minor, version.type, version.build)
+        )
 
         # Retrieve list of cameras from the system
         cam_list = system.GetCameras()
 
         num_cameras = cam_list.GetSize()
 
-        print('Number of cameras detected: %d' % num_cameras)
+        print("Number of cameras detected: %d" % num_cameras)
 
-        #if self.__cam_id > num_cameras:
+        # if self.__cam_id > num_cameras:
         #    return
 
         self.__cam = cam_list[self.__cam_id]
@@ -41,11 +64,8 @@ class ThermalGrabber(Thread):
         nodemap_tldevice = self.__cam.GetTLDeviceNodeMap()
         nodemap = self.__cam.GetNodeMap()
 
-
-        print('*** IMAGE ACQUISITION ***\n')
+        print("*** IMAGE ACQUISITION ***\n")
         try:
-            result = True
-
             # Set acquisition mode to continuous
             #
             #  *** NOTES ***
@@ -70,18 +90,31 @@ class ThermalGrabber(Thread):
             #  Retrieve enumeration node from nodemap
 
             # In order to access the node entries, they have to be casted to a pointer type (CEnumerationPtr here)
-            node_acquisition_mode = PySpin.CEnumerationPtr(nodemap.GetNode('AcquisitionMode'))
-            node_temp_mode = PySpin.CEnumerationPtr(nodemap.GetNode('IRFormat'))
-            if not PySpin.IsAvailable(node_acquisition_mode) or not PySpin.IsWritable(node_acquisition_mode):
-                print('Unable to set acquisition mode to continuous (enum retrieval). Aborting...')
+            node_acquisition_mode = PySpin.CEnumerationPtr(
+                nodemap.GetNode("AcquisitionMode")
+            )
+            node_temp_mode = PySpin.CEnumerationPtr(nodemap.GetNode("IRFormat"))
+            if not PySpin.IsAvailable(node_acquisition_mode) or not PySpin.IsWritable(
+                node_acquisition_mode
+            ):
+                print(
+                    "Unable to set acquisition mode to continuous (enum retrieval). Aborting..."
+                )
                 return False
 
             # Retrieve entry node from enumeration node
-            node_acquisition_mode_continuous = node_acquisition_mode.GetEntryByName('Continuous')
-            node_temp_mode_linear = node_temp_mode.GetEntryByName('TemperatureLinear10mK')
-            if not PySpin.IsAvailable(node_acquisition_mode_continuous) or not PySpin.IsReadable(
-                    node_acquisition_mode_continuous):
-                print('Unable to set acquisition mode to continuous (entry retrieval). Aborting...')
+            node_acquisition_mode_continuous = node_acquisition_mode.GetEntryByName(
+                "Continuous"
+            )
+            node_temp_mode_linear = node_temp_mode.GetEntryByName(
+                "TemperatureLinear10mK"
+            )
+            if not PySpin.IsAvailable(
+                node_acquisition_mode_continuous
+            ) or not PySpin.IsReadable(node_acquisition_mode_continuous):
+                print(
+                    "Unable to set acquisition mode to continuous (entry retrieval). Aborting..."
+                )
                 return False
 
             # Retrieve integer value from entry node
@@ -92,7 +125,7 @@ class ThermalGrabber(Thread):
             node_temp_mode.SetIntValue(temp_mode)
             node_acquisition_mode.SetIntValue(acquisition_mode_continuous)
 
-            print('Acquisition mode set to continuous...')
+            print("Acquisition mode set to continuous...")
 
             #  Begin acquiring images
             #
@@ -112,11 +145,13 @@ class ThermalGrabber(Thread):
             #  The device serial number is retrieved in order to keep cameras from
             #  overwriting one another. Grabbing image IDs could also accomplish
             #  this.
-            device_serial_number = ''
-            node_device_serial_number = PySpin.CStringPtr(nodemap_tldevice.GetNode('DeviceSerialNumber'))
+            _device_serial_number = ""
+            _node_device_serial_number = PySpin.CStringPtr(
+                nodemap_tldevice.GetNode("DeviceSerialNumber")
+            )
             self.__cam.BeginAcquisition()
 
-            #for i in range(100):
+            # for i in range(100):
             #    image_result = self.__cam.GetNextImage(1000)
             #    if not image_result.IsIncomplete():
             #        print("broken frame " + str(i))
@@ -124,18 +159,18 @@ class ThermalGrabber(Thread):
             #        print("working frame " + str(i))
 
         except PySpin.SpinnakerException as ex:
-            print('Error: %s' % ex)
+            print("Error: %s" % ex)
             return False
         print("initialized")
         while True:
-            #try:
+            # try:
             image_result = self.__cam.GetNextImage(1000)
             if not image_result.IsIncomplete():
                 frame = image_result.GetNDArray()
                 self.n_frame += 1
             else:
                 continue
-            #except:
+            # except:
             #    continue
             image_result.Release()
             ts = time() * 1000000
@@ -161,6 +196,10 @@ class ThermalGrabber(Thread):
 
 class ThermalCamera(GenericCamera):
     def __init__(self, i=0):
+        if not HAS_PYSPIN:
+            raise ImportError(
+                "PySpin is required for ThermalCamera. Install the proprietary Spinnaker SDK to enable this feature."
+            )
         self.__cam = None
         self.__cam_id = i
 
@@ -173,16 +212,19 @@ class ThermalCamera(GenericCamera):
 
         # Get current library version
         version = system.GetLibraryVersion()
-        print('Library version: %d.%d.%d.%d' % (version.major, version.minor, version.type, version.build))
+        print(
+            "Library version: %d.%d.%d.%d"
+            % (version.major, version.minor, version.type, version.build)
+        )
 
         # Retrieve list of cameras from the system
         cam_list = system.GetCameras()
 
         num_cameras = cam_list.GetSize()
 
-        print('Number of cameras detected: %d' % num_cameras)
+        print("Number of cameras detected: %d" % num_cameras)
 
-        #if self.__cam_id > num_cameras:
+        # if self.__cam_id > num_cameras:
         #    return
 
         self.__cam = cam_list[self.__cam_id]
@@ -191,11 +233,8 @@ class ThermalCamera(GenericCamera):
         nodemap_tldevice = self.__cam.GetTLDeviceNodeMap()
         nodemap = self.__cam.GetNodeMap()
 
-
-        print('*** IMAGE ACQUISITION ***\n')
+        print("*** IMAGE ACQUISITION ***\n")
         try:
-            result = True
-
             # Set acquisition mode to continuous
             #
             #  *** NOTES ***
@@ -220,16 +259,27 @@ class ThermalCamera(GenericCamera):
             #  Retrieve enumeration node from nodemap
 
             # In order to access the node entries, they have to be casted to a pointer type (CEnumerationPtr here)
-            node_acquisition_mode = PySpin.CEnumerationPtr(nodemap.GetNode('AcquisitionMode'))
-            if not PySpin.IsAvailable(node_acquisition_mode) or not PySpin.IsWritable(node_acquisition_mode):
-                print('Unable to set acquisition mode to continuous (enum retrieval). Aborting...')
+            node_acquisition_mode = PySpin.CEnumerationPtr(
+                nodemap.GetNode("AcquisitionMode")
+            )
+            if not PySpin.IsAvailable(node_acquisition_mode) or not PySpin.IsWritable(
+                node_acquisition_mode
+            ):
+                print(
+                    "Unable to set acquisition mode to continuous (enum retrieval). Aborting..."
+                )
                 return False
 
             # Retrieve entry node from enumeration node
-            node_acquisition_mode_continuous = node_acquisition_mode.GetEntryByName('Continuous')
-            if not PySpin.IsAvailable(node_acquisition_mode_continuous) or not PySpin.IsReadable(
-                    node_acquisition_mode_continuous):
-                print('Unable to set acquisition mode to continuous (entry retrieval). Aborting...')
+            node_acquisition_mode_continuous = node_acquisition_mode.GetEntryByName(
+                "Continuous"
+            )
+            if not PySpin.IsAvailable(
+                node_acquisition_mode_continuous
+            ) or not PySpin.IsReadable(node_acquisition_mode_continuous):
+                print(
+                    "Unable to set acquisition mode to continuous (entry retrieval). Aborting..."
+                )
                 return False
 
             # Retrieve integer value from entry node
@@ -238,7 +288,7 @@ class ThermalCamera(GenericCamera):
             # Set integer value from entry node as new value of enumeration node
             node_acquisition_mode.SetIntValue(acquisition_mode_continuous)
 
-            print('Acquisition mode set to continuous...')
+            print("Acquisition mode set to continuous...")
 
             #  Begin acquiring images
             #
@@ -258,13 +308,15 @@ class ThermalCamera(GenericCamera):
             #  The device serial number is retrieved in order to keep cameras from
             #  overwriting one another. Grabbing image IDs could also accomplish
             #  this.
-            device_serial_number = ''
-            node_device_serial_number = PySpin.CStringPtr(nodemap_tldevice.GetNode('DeviceSerialNumber'))
+            _device_serial_number = ""
+            _node_device_serial_number = PySpin.CStringPtr(
+                nodemap_tldevice.GetNode("DeviceSerialNumber")
+            )
 
             self.__cam.BeginAcquisition()
 
         except PySpin.SpinnakerException as ex:
-            print('Error: %s' % ex)
+            print("Error: %s" % ex)
             return False
 
     def get_image(self):
@@ -277,10 +329,18 @@ class ThermalCamera(GenericCamera):
                 return self.n_frame, time(), img
             else:
                 return None, None, None
-        except:
+        except Exception:
             return None, None, None
 
     def __del__(self):
         if self.__cam is not None:
             self.__cam.EndAcquisition()
         super(ThermalCamera, self).__del__()
+
+
+__all__ = [
+    "HAS_PYSPIN",
+    "HAS_SCREENING_DEMO",
+    "ThermalGrabber",
+    "ThermalCamera",
+]

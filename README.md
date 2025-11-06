@@ -1,3 +1,17 @@
+[![PyPI - Version](https://img.shields.io/pypi/v/neurovc)](https://pypi.org/project/neurovc/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/neurovc)](https://pypi.org/project/neurovc/)
+[![PyPI - License](https://img.shields.io/pypi/l/neurovc)](LICENSE)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/neurovc)](https://pypistats.org/packages/neurovc)
+[![Documentation Status](https://readthedocs.org/projects/neurovc/badge/?version=latest)](https://neurovc.readthedocs.io/en/latest/?badge=latest)
+
+## 🚧 Under Development
+
+This project is still in an **alpha stage**. Expect rapid changes, incomplete features, and possible breaking updates between releases.
+
+- The API may evolve as we stabilize core functionality.
+- Documentation and examples are incomplete.
+- Feedback and bug reports are especially valuable at this stage.
+
 # NeuroVC
 
 ![Fig1](https://phflot.github.io/img/fig1.jpg)
@@ -9,9 +23,9 @@ Toolbox with utility functions for computer vision setups in neuroscience. The c
 If you use this code in work for publications, please cite in the following way.
 
 **1. Camera routines**:
-  
+
   > Flotho, P., Bhamborae, M., Grun, T., Trenado, C., Thinnes, D., Limbach, D., & Strauss, D. J. (2021). Multimodal Data Acquisition at SARS-CoV-2 Drive Through Screening Centers: Setup Description and Experiences in Saarland, Germany. J Biophotonics.
-  
+
   BibTeX entry
   ```bibtex
   @article{flotea2021b,
@@ -27,7 +41,7 @@ If you use this code in work for publications, please cite in the following way.
 **2. Motion magnification**:
 
   > Flotho, P., Heiss, C., Steidl, G., & Strauss, D. J. (2023). Lagrangian motion magnification with double sparse optical flow decomposition. Frontiers in Applied Mathematics and Statistics, 9, 1164491.
-  
+
   ```bibtex
   @article{flotho2023lagrangian,
     title={Lagrangian motion magnification with double sparse optical flow decomposition},
@@ -41,9 +55,9 @@ If you use this code in work for publications, please cite in the following way.
   ```
 
   and for facial landmark-based decomposition:
-  
+
   > Flotho, P., Heiß, C., Steidl, G., & Strauss, D. J. (2022, July). Lagrangian motion magnification with landmark-prior and sparse PCA for facial microexpressions and micromovements. In 2022 44th Annual International Conference of the IEEE Engineering in Medicine & Biology Society (EMBC) (pp. 2215-2218). IEEE.
-  
+
   ```bibtex
   @inproceedings{flotho2022lagrangian,
     title={Lagrangian motion magnification with landmark-prior and sparse PCA for facial microexpressions and micromovements},
@@ -58,7 +72,7 @@ If you use this code in work for publications, please cite in the following way.
 and for using compressive function approaches:
 
   > Flotho, P., Bhamborae, M. J., Haab, L., & Strauss, D. J. (2018). Lagrangian motion magnification revisited: Continuous, magnitude driven motion scaling for psychophysiological experiments. In 2022 44th Annual International Conference of the IEEE Engineering in Medicine & Biology Society (EMBC) (pp. 2215-2218). IEEE.
-  
+
   ```bibtex
   @inproceedings{flotho2018lagrangian,
     title={Lagrangian motion magnification revisited: Continuous, magnitude driven motion scaling for psychophysiological experiments},
@@ -74,7 +88,7 @@ and for using compressive function approaches:
 **3. Thermal landmarks:**
 
   > Flotho, P., Piening, M., Kukleva, A., & Steidl, G. (2024). T-FAKE: Synthesizing Thermal Images for Facial Landmarking. arXiv preprint arXiv:2408.15127.
-  
+
   ```bibtex
   @article{flotho2024t,
     title={T-FAKE: Synthesizing Thermal Images for Facial Landmarking},

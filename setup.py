@@ -1,26 +1,14 @@
-import os
-from setuptools import setup, find_packages
+"""
+Minimal setup.py for backwards compatibility and editable installs.
+All configuration is in pyproject.toml.
+"""
 
-try:
-    import tomllib
-except ImportError:
-    import tomli as tomllib
+from setuptools import setup
 
-pyproject_path = os.path.join(os.path.dirname(__file__), "pyproject.toml")
-with open(pyproject_path, "rb") as f:
-    pyproject_data = tomllib.load(f)
-
-project_data = pyproject_data.get("project", {})
-dependencies = project_data.get("dependencies", [])
-
-setup(
-    name=project_data.get("name", "unknown"),
-    version=project_data.get("version", "0.0.0"),
-    description=project_data.get("description", ""),
-    author=(project_data.get("authors", [{}])[0].get("name") or ""),
-    author_email=(project_data.get("authors", [{}])[0].get("email") or ""),
-    license=project_data.get("license", {}).get("text", ""),
-    packages=find_packages(),
-    # Leverage requires-python from pyproject.toml instead of python_requires
-    install_requires=dependencies,
-)
+# This enables:
+# - pip install .
+# - pip install -e .
+# - python setup.py develop (deprecated but still used)
+#
+# All actual configuration comes from pyproject.toml
+setup()

@@ -1,22 +1,43 @@
-__author__ = "Philipp Flotho"
-"""
-flow_processing
-Copyright 2024 by Philipp Flotho, All rights reserved.
-"""
+"""Motion magnification helpers."""
 
+from PIL import Image, ImageDraw
+import cv2
+import numpy as np
 from numba import jit
+from scipy.interpolate import griddata
 from scipy.spatial import ConvexHull
-import PIL
-from PIL import ImageDraw
 
 import neurovc
 import neurovc as nvc
-from neurovc.momag.framewarpers import *
-from neurovc.raft import RAFTOpticalFlow
-from neurovc.raft.utils.flow_viz import flow_to_image
+from neurovc.momag.framewarpers import OnlineFrameWarper, warp_image_backwards
 from neurovc.util.IO_util import CircularFrameBuffer
 
-import mediapipe as mp
+try:
+    import mediapipe as mp
+
+    HAS_MEDIAPIPE = True
+except ModuleNotFoundError:
+    mp = None
+    HAS_MEDIAPIPE = False
+
+__author__ = "Philipp Flotho"
+
+
+def _gray_augmentor(frame):
+    return cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+
+
+def _extract_landmarks(results):
+    if results is None or results.multi_face_landmarks is None:
+        raise ValueError("No landmarks available in Mediapipe results.")
+    return np.array(
+        [[lm.x, lm.y, lm.z] for lm in results.multi_face_landmarks[0].landmark],
+        dtype=float,
+    )
+
+
+def _identity(frame):
+    return frame
 
 
 def get_motion_magnitude(w):
@@ -65,13 +86,14 @@ class ThreshCompressor(MagnitudeCompressor):
 @jit(nopython=True)
 def diffusion_loop(img_out, idx, k, h=1):
     for time in range(k):
-        for (i, j) in idx:
+        for i, j in idx:
             img_out[i, j] += (0.25 / (h * h)) * (
-                    img_out[i, j + 1] +
-                    img_out[i, j - 1] +
-                    img_out[i - 1, j] +
-                    img_out[i + 1, j] -
-                    4 * img_out[i, j])
+                img_out[i, j + 1]
+                + img_out[i, j - 1]
+                + img_out[i - 1, j]
+                + img_out[i + 1, j]
+                - 4 * img_out[i, j]
+            )
 
     return img_out
 
@@ -85,17 +107,18 @@ class FlowDecomposer:
 
     def update_mask(self, landmarks):
         m, n = self.dims[0:2]
-        img = PIL.Image.new('F', (n, m), 0.0)
+        img = Image.new("F", (n, m), 0.0)
 
         for idx in self.idx:
             points = landmarks[idx]
             hull = ConvexHull(points)
 
-
             args = np.argsort(hull.simplices, axis=0)
             _, idx = np.unique(hull.simplices[args[:, 0]][:, 0], return_index=True)
 
-            points = [(x, y) for x, y, _ in points[hull.simplices[args[:, 0]][:, 0][idx]]]
+            points = [
+                (x, y) for x, y, _ in points[hull.simplices[args[:, 0]][:, 0][idx]]
+            ]
             ImageDraw.Draw(img).polygon(points, outline=255, fill=255)
 
         img = np.array(img)
@@ -103,7 +126,7 @@ class FlowDecomposer:
         self.mask = cv2.dilate(img, circle, iterations=16)
 
     def decompose(self, flow):
-        mask_tmp = self.mask # warp_image_pc_single(self.mask, flow)
+        mask_tmp = self.mask  # warp_image_pc_single(self.mask, flow)
 
         flow_global = np.empty(flow.shape, flow.dtype)
 
@@ -115,8 +138,10 @@ class FlowDecomposer:
         return flow_global, flow_local
 
     def __flow_mag(self, flow, normalize=True):
-        tmp = np.sqrt(np.multiply(flow[:, :, 0], flow[:, :, 0]) +
-                      np.multiply(flow[:, :, 1], flow[:, :, 1]))
+        tmp = np.sqrt(
+            np.multiply(flow[:, :, 0], flow[:, :, 0])
+            + np.multiply(flow[:, :, 1], flow[:, :, 1])
+        )
         if normalize:
             tmp /= 10.0
             tmp[tmp < 0.0] = 0.0
@@ -133,23 +158,32 @@ class FlowDecomposer:
         img_out[idx[:, 0], idx[:, 1]] = 0
 
         m, n = img_out.shape
-        img_out_low = diffusion_loop(cv2.resize(img_out, (n // 8, m // 8)),
-                                     np.argwhere(cv2.resize(mask, (n // 8, m // 8)) != 0), 1000)
-        img_out[idx[:, 0], idx[:, 1]] = cv2.resize(img_out_low, (n, m))[idx[:, 0], idx[:, 1]]
-        img_out_low = diffusion_loop(cv2.resize(img_out, (n // 4, m // 4)),
-                                     np.argwhere(cv2.resize(mask, (n // 4, m // 4)) != 0), 1000)
-        img_out[idx[:, 0], idx[:, 1]] = cv2.resize(img_out_low, (n, m))[idx[:, 0], idx[:, 1]]
-        img_out[idx[:, 0], idx[:, 1]] = diffusion_loop(img_out, np.argwhere(mask != 0), 500)[idx[:, 0], idx[:, 1]]
+        img_out_low = diffusion_loop(
+            cv2.resize(img_out, (n // 8, m // 8)),
+            np.argwhere(cv2.resize(mask, (n // 8, m // 8)) != 0),
+            1000,
+        )
+        img_out[idx[:, 0], idx[:, 1]] = cv2.resize(img_out_low, (n, m))[
+            idx[:, 0], idx[:, 1]
+        ]
+        img_out_low = diffusion_loop(
+            cv2.resize(img_out, (n // 4, m // 4)),
+            np.argwhere(cv2.resize(mask, (n // 4, m // 4)) != 0),
+            1000,
+        )
+        img_out[idx[:, 0], idx[:, 1]] = cv2.resize(img_out_low, (n, m))[
+            idx[:, 0], idx[:, 1]
+        ]
+        img_out[idx[:, 0], idx[:, 1]] = diffusion_loop(
+            img_out, np.argwhere(mask != 0), 500
+        )[idx[:, 0], idx[:, 1]]
 
         return img_out.astype(img.dtype)
 
 
 class BasicMagnifier:
     def __init__(self, attenuation_function=None, augmentor=None, mesh_processor=None):
-        if augmentor is not None:
-            self._augmentor = augmentor
-        else:
-            self._augmentor = lambda f: f
+        self._augmentor = augmentor if augmentor is not None else _identity
 
         if attenuation_function is None:
             self._attenuation_function = ConstCompressor(5)
@@ -186,7 +220,9 @@ class BasicMagnifier:
             self._do_init(ref)
 
     def get_flow(self, frame):
-        w = self.OF_inst.calc(self._augmentor(self.ref), self._augmentor(frame), self.last_flow)
+        w = self.OF_inst.calc(
+            self._augmentor(self.ref), self._augmentor(frame), self.last_flow
+        )
         self.last_flow = w
         return w
 
@@ -219,23 +255,25 @@ class AlphaLooper:
 
 class MagnificationTask:
     def __init__(self):
+        if not HAS_MEDIAPIPE:
+            raise ImportError(
+                "mediapipe is required for MagnificationTask. Install the landmark extra: 'pip install neurovc[landmark]'"
+            )
         self.buffer = CircularFrameBuffer(10)
         self.last_local_flow = None
         self.last_global_flow = None
         self.last_frame = None
         self.last_global_depth = None
 
-        augmentor = lambda f: cv2.cvtColor(f, cv2.COLOR_RGB2GRAY)
         magnifiers = [
-            OnlineGlobalMagnifier(augmentor=augmentor),
-            OnlineLandmarkMagnifier(nvc.LM_EYE_LEFT,
-                                    augmentor=augmentor),
-            OnlineLandmarkMagnifier(nvc.LM_EYE_RIGHT,
-                                    augmentor=augmentor),
-            OnlineLandmarkMagnifier(nvc.LM_FOREHEAD,
-                                    augmentor=augmentor),
-            OnlineLandmarkMagnifier(landmarks=nvc.LM_MOUTH,
-                                    augmentor=augmentor),
+            OnlineGlobalMagnifier(augmentor=_gray_augmentor),
+            OnlineLandmarkMagnifier(nvc.LM_EYE_LEFT, augmentor=_gray_augmentor),
+            OnlineLandmarkMagnifier(nvc.LM_EYE_RIGHT, augmentor=_gray_augmentor),
+            OnlineLandmarkMagnifier(nvc.LM_FOREHEAD, augmentor=_gray_augmentor),
+            OnlineLandmarkMagnifier(
+                landmarks=nvc.LM_MOUTH,
+                augmentor=_gray_augmentor,
+            ),
         ]
 
         self.magnifiers = {
@@ -248,7 +286,8 @@ class MagnificationTask:
             static_image_mode=True,
             refine_landmarks=True,
             max_num_faces=1,
-            min_detection_confidence=0.5)
+            min_detection_confidence=0.5,
+        )
 
         self.ref = None
         self.results_ref = None
@@ -272,22 +311,24 @@ class MagnificationTask:
             self.ref = ref
             self.results_ref = results_ref
             self.update_flow()
-        except:
+        except Exception:
             print("No Landmarks in reference.")
 
         if results_frame.multi_face_landmarks is None:
             return
 
         try:
-            points = get_landmarks(results_ref)
-        except:
+            points = _extract_landmarks(results_ref)
+        except Exception:
             return
         image_size = frame.shape[:2]
         points[:, 0] *= image_size[1]
         points[:, 1] *= image_size[0]
-        grid_y, grid_x = np.mgrid[0:image_size[0], 0:image_size[1]]
+        grid_y, grid_x = np.mgrid[0 : image_size[0], 0 : image_size[1]]
 
-        global_depth = griddata(points[:, :2], points[:, 2], (grid_x, grid_y), method='linear')
+        global_depth = griddata(
+            points[:, :2], points[:, 2], (grid_x, grid_y), method="linear"
+        )
         gd_nan_mask = np.isnan(global_depth)
         global_depth[gd_nan_mask] = global_depth[~gd_nan_mask].max()
         global_depth -= global_depth.min()
@@ -303,14 +344,17 @@ class MagnificationTask:
         return self.current_magnifier.framewarper.warp_image_uv(
             warp_image_backwards(self.last_frame, flow),
             self.last_global_flow + alpha * self.last_local_flow,
-            self.last_global_depth)
+            self.last_global_depth,
+        )
 
     def update_flow(self):
         try:
-            flow_global, flow_local = self.current_magnifier(self.last_frame, self.results_frame)
+            flow_global, flow_local = self.current_magnifier(
+                self.last_frame, self.results_frame
+            )
             self.last_global_flow = flow_global
             self.last_local_flow = flow_local
-        except:
+        except Exception:
             pass
 
     def set_magnifier(self, key, update_flow=False):
@@ -319,7 +363,7 @@ class MagnificationTask:
             self.current_magnifier = self.magnifiers[key]
             try:
                 self.current_magnifier.update_reference(self.ref, self.results_ref)
-            except:
+            except Exception:
                 pass
             if update_flow:
                 self.update_flow()
@@ -338,19 +382,33 @@ class OnlineGlobalMagnifier(BasicMagnifier):
 
 
 class OnlineLandmarkMagnifier(BasicMagnifier):
-    def __init__(self, landmarks=neurovc.LM_MOUTH, alpha=15, reference=None, attenuation_function=None,
-                 augmentor=None):
-        super().__init__(attenuation_function=attenuation_function,
-                         mesh_processor=FacialMeshProcessor(), augmentor=augmentor)
+    def __init__(
+        self,
+        landmarks=neurovc.LM_MOUTH,
+        alpha=15,
+        reference=None,
+        attenuation_function=None,
+        augmentor=None,
+    ):
+        if not HAS_MEDIAPIPE:
+            raise ImportError(
+                "mediapipe is required for OnlineLandmarkMagnifier. Install the landmark extra: 'pip install neurovc[landmark]'"
+            )
+        super().__init__(
+            attenuation_function=attenuation_function,
+            mesh_processor=FacialMeshProcessor(),
+            augmentor=augmentor,
+        )
 
         mp_drawing = mp.solutions.drawing_utils
         mp_face_mesh = mp.solutions.face_mesh
-        self.drawing_spec = mp_drawing.DrawingSpec(thickness=1, circle_radius=0, color=(0, 0, 0))
+        self.drawing_spec = mp_drawing.DrawingSpec(
+            thickness=1, circle_radius=0, color=(0, 0, 0)
+        )
 
         self.face_mesh = mp_face_mesh.FaceMesh(
-            static_image_mode=True,
-            max_num_faces=1,
-            min_detection_confidence=0.5)
+            static_image_mode=True, max_num_faces=1, min_detection_confidence=0.5
+        )
 
         self._init = False
         self.alpha = alpha
@@ -368,8 +426,11 @@ class OnlineLandmarkMagnifier(BasicMagnifier):
     def update_reference(self, ref, landmarks=None):
         super().update_reference(ref)
         m, n = ref.shape[0:2]
-        self.decomposer = FlowDecomposer(self.mesh_processor.get_last_landmarks(), (m, n),
-                                         self.mesh_processor.get_region_from_id(self.landmarks))
+        self.decomposer = FlowDecomposer(
+            self.mesh_processor.get_last_landmarks(),
+            (m, n),
+            self.mesh_processor.get_region_from_id(self.landmarks),
+        )
 
     def __call__(self, frame, landmarks=None):
         _ = super().__call__(frame)
@@ -388,43 +449,199 @@ class OnlineLandmarkMagnifier(BasicMagnifier):
                 landmark_list=self.mesh_processor.last_result[0][0],
                 connections=mp_face_mesh.FACEMESH_TESSELATION,
                 landmark_drawing_spec=self.drawing_spec,
-                connection_drawing_spec=self.drawing_spec)
-        except:
+                connection_drawing_spec=self.drawing_spec,
+            )
+        except Exception:
             pass
-        for x, y, _ in self.mesh_processor.get_last_landmarks()[self.mesh_processor.get_region_from_id(self.landmarks)]:
+        for x, y, _ in self.mesh_processor.get_last_landmarks()[
+            self.mesh_processor.get_region_from_id(self.landmarks)
+        ]:
             cv2.circle(lm_viz, (int(np.round(x)), int(np.round(y))), 5, (0, 0, 255), -1)
 
         return lm_viz, self.ref
 
 
 class FacialMeshProcessor:
-    mouth_boundary_inner = [167, 164, 393, 391, 322, 410, 287, 273, 335, 406,
-                            313, 18, 83, 182, 106, 43, 57, 186, 92, 165]
-    mouth_boundary = [203, 98, 97, 2, 326, 327, 423, 426, 436, 432,
-                      422, 424, 418, 421, 200, 201, 194, 204, 202, 216, 212, 206]
-    mouth_boundary_outer = [203, 98, 97, 2, 326, 327, 423, 425, 427, 430, 434, 431,
-                            207, 205, 214, 210, 211,
-                            418, 421, 200, 201, 194]
-    eye_left_boundary_inner = [225, 224, 223, 222, 221, 189, 244, 233, 232,
-                               231, 230, 229, 228, 31, 226, 113]
-    eye_right_boundary_inner = [464, 413, 441, 442, 443, 444, 445,
-                                342, 446, 448, 449, 450, 451, 452, 453, 261]
-    eye_left_boundary = [46, 53, 52, 65, 55, 193, 245, 128, 121, 120, 119,
-                         118, 117, 111, 35, 124]
-    eye_right_boundary = [285, 417, 465, 357, 350, 349, 348, 347, 346,
-                          340, 265, 353, 276, 283, 282, 295]
-    forehead_temp_boundary = [109, 69, 66, 65, 55, 8, 285, 295, 282, 334, 333, 332, 297, 338, 10]
-    _lms = [mouth_boundary, eye_left_boundary, eye_right_boundary, forehead_temp_boundary]
+    mouth_boundary_inner = [
+        167,
+        164,
+        393,
+        391,
+        322,
+        410,
+        287,
+        273,
+        335,
+        406,
+        313,
+        18,
+        83,
+        182,
+        106,
+        43,
+        57,
+        186,
+        92,
+        165,
+    ]
+    mouth_boundary = [
+        203,
+        98,
+        97,
+        2,
+        326,
+        327,
+        423,
+        426,
+        436,
+        432,
+        422,
+        424,
+        418,
+        421,
+        200,
+        201,
+        194,
+        204,
+        202,
+        216,
+        212,
+        206,
+    ]
+    mouth_boundary_outer = [
+        203,
+        98,
+        97,
+        2,
+        326,
+        327,
+        423,
+        425,
+        427,
+        430,
+        434,
+        431,
+        207,
+        205,
+        214,
+        210,
+        211,
+        418,
+        421,
+        200,
+        201,
+        194,
+    ]
+    eye_left_boundary_inner = [
+        225,
+        224,
+        223,
+        222,
+        221,
+        189,
+        244,
+        233,
+        232,
+        231,
+        230,
+        229,
+        228,
+        31,
+        226,
+        113,
+    ]
+    eye_right_boundary_inner = [
+        464,
+        413,
+        441,
+        442,
+        443,
+        444,
+        445,
+        342,
+        446,
+        448,
+        449,
+        450,
+        451,
+        452,
+        453,
+        261,
+    ]
+    eye_left_boundary = [
+        46,
+        53,
+        52,
+        65,
+        55,
+        193,
+        245,
+        128,
+        121,
+        120,
+        119,
+        118,
+        117,
+        111,
+        35,
+        124,
+    ]
+    eye_right_boundary = [
+        285,
+        417,
+        465,
+        357,
+        350,
+        349,
+        348,
+        347,
+        346,
+        340,
+        265,
+        353,
+        276,
+        283,
+        282,
+        295,
+    ]
+    forehead_temp_boundary = [
+        109,
+        69,
+        66,
+        65,
+        55,
+        8,
+        285,
+        295,
+        282,
+        334,
+        333,
+        332,
+        297,
+        338,
+        10,
+    ]
+    _lms = [
+        mouth_boundary,
+        eye_left_boundary,
+        eye_right_boundary,
+        forehead_temp_boundary,
+    ]
 
     def __init__(self):
+        if not HAS_MEDIAPIPE:
+            raise ImportError(
+                "mediapipe is required for FacialMeshProcessor. Install the landmark extra: 'pip install neurovc[landmark]'"
+            )
         mp_drawing = mp.solutions.drawing_utils
         mp_face_mesh = mp.solutions.face_mesh
-        self.drawing_spec = mp_drawing.DrawingSpec(thickness=1, circle_radius=0, color=(0, 0, 0))
+        self.drawing_spec = mp_drawing.DrawingSpec(
+            thickness=1, circle_radius=0, color=(0, 0, 0)
+        )
 
         self.face_mesh = mp_face_mesh.FaceMesh(
-            static_image_mode=True,
-            max_num_faces=1,
-            min_detection_confidence=0.5)
+            static_image_mode=True, max_num_faces=1, min_detection_confidence=0.5
+        )
 
         self.last_result = None
 
@@ -446,5 +663,25 @@ class FacialMeshProcessor:
     def get_last_landmarks(self):
         results, (m, n) = self.last_result
         landmark_list = np.array(
-            [[n * lm.x, m * lm.y, lm.z] for lm in results.multi_face_landmarks[0].landmark])
+            [
+                [n * lm.x, m * lm.y, lm.z]
+                for lm in results.multi_face_landmarks[0].landmark
+            ]
+        )
         return landmark_list
+
+
+__all__ = [
+    "HAS_MEDIAPIPE",
+    "MagnitudeCompressor",
+    "GradMagnitudeCompressor",
+    "ConstCompressor",
+    "ThreshCompressor",
+    "FlowDecomposer",
+    "BasicMagnifier",
+    "OnlineGlobalMagnifier",
+    "OnlineLandmarkMagnifier",
+    "FacialMeshProcessor",
+    "AlphaLooper",
+    "MagnificationTask",
+]
