@@ -55,6 +55,22 @@ If you use this code in work for publications, please cite in the following way.
   }
   ```
 
+and for using compressive function approaches:
+
+  > Flotho, P., Bhamborae, M. J., Haab, L., & Strauss, D. J. (2018). Lagrangian motion magnification revisited: Continuous, magnitude driven motion scaling for psychophysiological experiments. In 2022 44th Annual International Conference of the IEEE Engineering in Medicine & Biology Society (EMBC) (pp. 2215-2218). IEEE.
+  
+  ```bibtex
+  @inproceedings{flotho2018lagrangian,
+    title={Lagrangian motion magnification revisited: Continuous, magnitude driven motion scaling for psychophysiological experiments},
+    author={Flotho, Philipp and Bhamborae, Mayur J and Haab, Lars and Strauss, Daniel J},
+    booktitle={2018 40th Annual International Conference of the IEEE Engineering in Medicine and Biology Society (EMBC)},
+    pages={3586--3589},
+    year={2018},
+    organization={IEEE}
+  }
+  ```
+
+
 **3. Thermal landmarks:**
 
   > Flotho, P., Piening, M., Kukleva, A., & Steidl, G. (2024). T-FAKE: Synthesizing Thermal Images for Facial Landmarking. arXiv preprint arXiv:2408.15127.
