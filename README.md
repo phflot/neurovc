@@ -132,6 +132,22 @@ This distribution bundles selected research code from external projects. Please 
   }
   ```
 
+**Thermal face detection (TFW)**:
+
+  > Kuzdeuov, A., Aubakirova, D., Koishigarina, D., & Varol, H. A. (2022). TFW: Annotated Thermal Faces in the Wild Dataset. *IEEE Transactions on Information Forensics and Security*, 17, 2084–2094. https://doi.org/10.1109/TIFS.2022.3177949
+
+  ```bibtex
+  @article{9781417,
+    author={Kuzdeuov, Askat and Aubakirova, Dana and Koishigarina, Darina and Varol, Huseyin Atakan},
+    journal={IEEE Transactions on Information Forensics and Security},
+    title={TFW: Annotated Thermal Faces in the Wild Dataset},
+    year={2022},
+    volume={17},
+    pages={2084-2094},
+    doi={10.1109/TIFS.2022.3177949}
+  }
+  ```
+
 ### Licensing Notice:
 This project contains code derived from RAFT, which is licensed under the BSD 3-Clause License. See `neurovc/raft/LICENSE` for details.
 The rest of this project is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 1.0 license (CC BY-NC-SA 1.0). See `LICENSE` for details.
