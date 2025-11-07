@@ -58,6 +58,6 @@ test = [
 where = ["src"]
 
 [tool.setuptools_scm]
-version_file = "src/pyflowreg/_version.py"
+version_file = "src/neurovc/_version.py"
 version_scheme = "no-guess-dev"
 local_scheme = "no-local-version"
