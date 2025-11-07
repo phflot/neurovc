@@ -98,6 +98,40 @@ and for using compressive function approaches:
   }
   ```
 
+## Third-Party Code
+
+This distribution bundles selected research code from external projects. Please cite the original authors when using functionality derived from these components.
+
+**RAFT optical flow**:
+
+  > Teed, Z., & Deng, J. (2020). RAFT: Recurrent All-Pairs Field Transforms for Optical Flow. In *European Conference on Computer Vision* (pp. 402–419). Springer.
+
+  ```bibtex
+  @inproceedings{teed2020raft,
+    title={Raft: Recurrent all-pairs field transforms for optical flow},
+    author={Teed, Zachary and Deng, Jia},
+    booktitle={European conference on computer vision},
+    pages={402--419},
+    year={2020},
+    organization={Springer}
+  }
+  ```
+
+**FlowMag motion magnification**:
+
+  > Pan, Z., Geng, D., & Owens, A. (2023). Self-supervised motion magnification by backpropagating through optical flow. *Advances in Neural Information Processing Systems*, 36, 253–273.
+
+  ```bibtex
+  @article{pan2023self,
+    title={Self-supervised motion magnification by backpropagating through optical flow},
+    author={Pan, Zhaoying and Geng, Daniel and Owens, Andrew},
+    journal={Advances in Neural Information Processing Systems},
+    volume={36},
+    pages={253--273},
+    year={2023}
+  }
+  ```
+
 ### Licensing Notice:
 This project contains code derived from RAFT, which is licensed under the BSD 3-Clause License. See `neurovc/raft/LICENSE` for details.
 The rest of this project is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 1.0 license (CC BY-NC-SA 1.0). See `LICENSE` for details.
